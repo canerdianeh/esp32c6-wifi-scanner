@@ -212,8 +212,8 @@ Bluetooth file transfer needs Bluetooth Classic, so neither is possible.)
 | Part | Connection |
 |---|---|
 | Pixels DIN (data in) | **GPIO2** (configurable) |
-| GPS module TX | **GPIO17** (ESP RX) |
-| GPS module RX | **GPIO16** (ESP TX, optional) |
+| GPS module TX | **GPIO17** (ESP RX; labeled **RXD** on the Waveshare board) |
+| GPS module RX | **GPIO16** (ESP TX, optional; labeled **TXD** on the Waveshare board) |
 | GPS module VCC / GND | 3V3 / GND (check your module's supply range) |
 
 - Any NMEA GPS works (e.g. u-blox M8/M10 breakouts). The baud rate is
