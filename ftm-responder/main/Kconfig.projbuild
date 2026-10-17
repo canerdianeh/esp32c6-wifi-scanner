@@ -1,0 +1,223 @@
+menu "FTM Responder"
+
+    config RESPONDER_SSID_PREFIX
+        string "SSID prefix"
+        default "OnePingOnly"
+        help
+            The SSID is this prefix, a dash, and the last 4 hex digits of the
+            access point's MAC address, e.g. OnePingOnly-8641.
+
+    config RESPONDER_PASSWORD
+        string "Wi-Fi password (8-63 characters)"
+        default "onepingonly"
+        help
+            FTM ranging doesn't need a connection, so nobody has to join this
+            network. The password just keeps devices from joining it.
+
+    config RESPONDER_CHANNEL
+        int "Channel"
+        range 1 13
+        default 6
+
+    config RESPONDER_FTM_OFFSET_CM
+        int "FTM distance correction broadcast in the beacon (cm)"
+        range -10000 10000
+        default 0
+        help
+            Calibration for this responder's antenna and cable. It's sent in
+            the beacon (see loc_ie.h) and the wearable scanner subtracts it
+            from the distance it measures. Place the scanner at a known
+            distance (e.g. 100 cm), note the *uncorrected* FTM distance in its
+            log, and set this to (measured - actual) in cm: 195 cm measured at
+            100 cm gives 95. An external antenna's cable adds roughly 1.5 cm
+            per cm of cable.
+
+            (ESP-IDF's own responder offset, esp_wifi_ftm_resp_set_offset,
+            made no measurable difference in testing, so it isn't used.)
+
+    choice RESPONDER_LED_TYPE
+        prompt "Status LED"
+        default RESPONDER_LED_WS2812
+        help
+            Running: slow heartbeat. Ranging: lit while FTM requests keep
+            arriving, with a flash for each one.
+
+        config RESPONDER_LED_WS2812
+            bool "WS2812 RGB LED (green = running, cyan = ranging)"
+        config RESPONDER_LED_SIMPLE
+            bool "Single LED (blink = running, on = ranging)"
+        config RESPONDER_LED_NONE
+            bool "None"
+    endchoice
+
+    config RESPONDER_LED
+        bool
+        default y if RESPONDER_LED_WS2812 || RESPONDER_LED_SIMPLE
+
+    config RESPONDER_LED_GPIO
+        int "Status LED GPIO"
+        depends on RESPONDER_LED
+        range 0 30
+        default 15 if RESPONDER_LED_SIMPLE
+        default 8
+        help
+            WS2812: GPIO8 on ESP32-C6 DevKitC-1, DevKitM-1 and most C6 SuperMini
+            boards. Single LED: GPIO15 on the Seeed XIAO ESP32-C6.
+
+    config RESPONDER_LED_ACTIVE_LOW
+        bool "LED lights when the pin is low"
+        depends on RESPONDER_LED_SIMPLE
+        default y
+        help
+            True for the Seeed XIAO ESP32-C6 user LED.
+
+    choice RESPONDER_LED_ORDER
+        prompt "Status LED byte order"
+        depends on RESPONDER_LED_WS2812
+        default RESPONDER_LED_ORDER_GRB
+        help
+            If green shows as red, choose RGB.
+
+        config RESPONDER_LED_ORDER_GRB
+            bool "GRB (most WS2812, Espressif DevKits)"
+        config RESPONDER_LED_ORDER_RGB
+            bool "RGB"
+    endchoice
+
+    config RESPONDER_LED_BRIGHTNESS
+        int "Status LED brightness (1-255)"
+        depends on RESPONDER_LED_WS2812
+        range 1 255
+        default 40
+
+    choice RESPONDER_ANTENNA
+        prompt "Antenna"
+        default RESPONDER_ANTENNA_DEFAULT
+        help
+            Boards with an RF switch need firmware to pick the antenna.
+
+        config RESPONDER_ANTENNA_DEFAULT
+            bool "Board default (no RF switch to set)"
+        config RESPONDER_ANTENNA_XIAO_INTERNAL
+            bool "Seeed XIAO ESP32-C6: built-in ceramic antenna"
+        config RESPONDER_ANTENNA_XIAO_EXTERNAL
+            bool "Seeed XIAO ESP32-C6: external antenna (u.FL)"
+    endchoice
+
+    config RESPONDER_TX_POWER_DBM
+        int "Maximum TX power (dBm)"
+        range 2 20
+        default 20
+
+    menu "Location in beacon"
+
+        config RESPONDER_LOC_FIXED
+            bool "Fixed position"
+            default n
+            help
+                Broadcast a fixed latitude/longitude in the beacon (used when
+                there's no GPS fix).
+
+        config RESPONDER_LAT
+            string "Latitude (decimal degrees, + = north)"
+            depends on RESPONDER_LOC_FIXED
+            default "0.0"
+
+        config RESPONDER_LON
+            string "Longitude (decimal degrees, + = east)"
+            depends on RESPONDER_LOC_FIXED
+            default "0.0"
+
+        config RESPONDER_ALT_M
+            int "Altitude (m)"
+            depends on RESPONDER_LOC_FIXED
+            range -500 9000
+            default 0
+
+        config RESPONDER_ACCURACY_M
+            int "Accuracy of the fixed position (m, 0 = unknown)"
+            depends on RESPONDER_LOC_FIXED
+            range 0 1000
+            default 0
+
+        config RESPONDER_CIVIC
+            bool "Civic address (RFC 4776 / RFC 5580)"
+            default n
+            help
+                Broadcast a civic address in the beacon, as RFC 4776 CAtype
+                fields (the format RFC 5580 carries). Leave fields empty to omit
+                them; values up to 40 characters.
+
+        if RESPONDER_CIVIC
+            config RESPONDER_CIVIC_COUNTRY
+                string "Country code (ISO 3166, 2 letters)"
+                default "US"
+            config RESPONDER_CIVIC_A1
+                string "State / province (CAtype 1)"
+                default ""
+            config RESPONDER_CIVIC_A3
+                string "City (CAtype 3)"
+                default ""
+            config RESPONDER_CIVIC_RD
+                string "Street name (CAtype 34)"
+                default ""
+            config RESPONDER_CIVIC_HNO
+                string "House number (CAtype 19)"
+                default ""
+            config RESPONDER_CIVIC_PC
+                string "Postal code (CAtype 24)"
+                default ""
+            config RESPONDER_CIVIC_BLD
+                string "Building (CAtype 25)"
+                default ""
+            config RESPONDER_CIVIC_FLR
+                string "Floor (CAtype 27)"
+                default ""
+            config RESPONDER_CIVIC_ROOM
+                string "Room (CAtype 28)"
+                default ""
+            config RESPONDER_CIVIC_NAM
+                string "Name, e.g. business (CAtype 23)"
+                default ""
+            config RESPONDER_CIVIC_LOC
+                string "Additional location info (CAtype 22)"
+                default ""
+        endif
+
+        config RESPONDER_GPS
+            bool "GPS module on a UART (NMEA)"
+            default n
+            help
+                With a fix, the live GPS position goes in the beacon (and
+                overrides a fixed position). Detected automatically, including
+                the baud rate.
+
+        config RESPONDER_GPS_UART_NUM
+            int "GPS UART number"
+            depends on RESPONDER_GPS
+            range 1 1
+            default 1
+
+        config RESPONDER_GPS_PIN_RX
+            int "ESP RX GPIO (connect to the module's TX)"
+            depends on RESPONDER_GPS
+            default 17
+            help
+                GPIO17 is pin D7 on the Seeed XIAO ESP32-C6.
+
+        config RESPONDER_GPS_PIN_TX
+            int "ESP TX GPIO (module RX; -1 = not connected)"
+            depends on RESPONDER_GPS
+            range -1 30
+            default 16
+            help
+                GPIO16 is pin D6 on the Seeed XIAO ESP32-C6.
+
+        config RESPONDER_GPS_BAUD
+            int "GPS baud rate (0 = detect)"
+            depends on RESPONDER_GPS
+            default 0
+
+    endmenu
+
+endmenu

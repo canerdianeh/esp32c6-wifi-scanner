@@ -1,0 +1,589 @@
+menu "Wearable Wi-Fi Scanner"
+
+    choice SCANNER_MODE
+        prompt "Signal source"
+        default SCANNER_MODE_STRONGEST
+        help
+            Choose which signal drives the LED color.
+
+        config SCANNER_MODE_STRONGEST
+            bool "Strongest access point (any SSID)"
+        config SCANNER_MODE_TARGET_SSID
+            bool "One specific SSID"
+    endchoice
+
+    config SCANNER_TARGET_SSID
+        string "Target SSID"
+        depends on SCANNER_MODE_TARGET_SSID
+        default "MyNetwork"
+        help
+            Exact (case-sensitive) SSID to track. If several access points broadcast
+            this SSID, the strongest one is used. Hidden networks with this SSID are
+            found too, because the scanner sends probe requests for it.
+
+    config SCANNER_NOT_FOUND_COLOR
+        hex "Color when no matching network is found (0xRRGGBB)"
+        range 0x000000 0xFFFFFF
+        default 0x000000
+        help
+            Shown when a scan finds nothing to track (after the allowed number of
+            missed scans). 0x000000 turns the LEDs off. Brightness and gamma settings
+            still apply.
+
+    config SCANNER_MISSED_SCANS
+        int "Missed scans before showing the not-found color"
+        range 1 20
+        default 2
+        help
+            A single scan can miss a network that is still there. The LEDs keep the
+            last color until this many scans in a row find nothing.
+
+    config SCANNER_LIST_KEEP_S
+        int "Keep networks and BSSIDs in the list after last seen (seconds)"
+        range 10 3600
+        default 300
+        help
+            A network that stops showing up keeps its row (dimmed) this long; a
+            BSSID keeps its dot (gray, in its first-seen position) this long.
+            While all 8 rows are taken, new networks wait for a free row, so a
+            long press re-sorts the list.
+
+    menu "Button"
+
+        config SCANNER_BUTTON
+            bool "Use the button"
+            default y
+            help
+                With the display: long press opens the mode menu (short press =
+                next mode, long press = open it). In Wi-Fi mode a short press locks
+                the LED to the next network; choosing Wi-Fi in the menu returns to
+                the strongest network and re-sorts the list.
+
+                Without the display: short press = next network, long press =
+                back to the strongest network and re-sort.
+
+        config SCANNER_BUTTON_GPIO
+            int "Button GPIO (pressed = low)"
+            depends on SCANNER_BUTTON
+            range 0 30
+            default 9
+            help
+                GPIO9 is the BOOT button on ESP32-C6 DevKits and the Waveshare
+                ESP32-C6-LCD-1.47. (The RESET button can't be read by software.)
+
+        config SCANNER_BUTTON_LONG_MS
+            int "Long-press time (ms)"
+            depends on SCANNER_BUTTON
+            range 300 5000
+            default 800
+
+    endmenu
+
+    menu "Scanning"
+
+        choice SCANNER_SCAN_TYPE
+            prompt "Scan type"
+            default SCANNER_SCAN_ACTIVE
+            help
+                Active scans send probe requests and are faster. Passive scans only
+                listen for beacons; they are silent but slower per channel.
+
+            config SCANNER_SCAN_ACTIVE
+                bool "Active"
+            config SCANNER_SCAN_PASSIVE
+                bool "Passive"
+        endchoice
+
+        config SCANNER_DWELL_MS
+            int "Time spent on each channel (ms)"
+            range 20 1500
+            default 80
+            help
+                Shorter times give faster updates but may miss access points. With
+                13 channels, 80 ms per channel gives roughly one update per second.
+                Passive scans usually need 100 ms or more (beacons are sent about
+                every 102 ms).
+
+        config SCANNER_SCAN_INTERVAL_MS
+            int "Pause between scans (ms)"
+            range 0 60000
+            default 0
+            help
+                Extra idle time between scans. Raising it saves battery.
+
+        config SCANNER_USE_CHANNEL_LIST
+            bool "Scan only specific channels"
+            default n
+
+        config SCANNER_CHANNEL_LIST
+            string "Channels to scan (comma-separated)"
+            depends on SCANNER_USE_CHANNEL_LIST
+            default "1,6,11"
+            help
+                2.4 GHz channels 1-14, for example "1,6,11". Fewer channels means
+                faster updates.
+
+        config SCANNER_SHOW_HIDDEN
+            bool "Include hidden networks in strongest-AP mode"
+            depends on SCANNER_MODE_STRONGEST
+            default y
+
+        config SCANNER_RSSI_SMOOTHING
+            int "RSSI smoothing (0 = none, 90 = heavy)"
+            range 0 95
+            default 40
+            help
+                Percentage weight given to the previous reading. Higher values make
+                the color steadier but slower to react as you move.
+
+        config SCANNER_LOG_APS
+            bool "Log every access point found in each scan"
+            default n
+            help
+                By default only one summary line per scan is logged.
+
+    endmenu
+
+    menu "Color scale"
+
+        config SCANNER_RSSI_MIN
+            int "Weakest signal: bottom of the scale (dBm)"
+            range -100 -30
+            default -90
+
+        config SCANNER_RSSI_MAX
+            int "Strongest signal: top of the scale (dBm)"
+            range -90 -10
+            default -40
+            help
+                Signals at or above this level show the top color of the scale.
+                Must be greater than the weakest-signal setting.
+
+        choice SCANNER_SCALE
+            prompt "Color scale (weak to strong)"
+            default SCANNER_SCALE_RED_GREEN
+
+            config SCANNER_SCALE_RED_GREEN
+                bool "Red, yellow, green"
+            config SCANNER_SCALE_THERMAL
+                bool "Thermal: blue, cyan, green, yellow, red"
+            config SCANNER_SCALE_SINGLE
+                bool "One color, brightness follows signal"
+            config SCANNER_SCALE_CUSTOM
+                bool "Custom three-color gradient"
+        endchoice
+
+        config SCANNER_SCALE_SINGLE_COLOR
+            hex "Color (0xRRGGBB)"
+            depends on SCANNER_SCALE_SINGLE
+            range 0x000000 0xFFFFFF
+            default 0x00FFFF
+
+        config SCANNER_SCALE_CUSTOM_WEAK
+            hex "Weak-signal color (0xRRGGBB)"
+            depends on SCANNER_SCALE_CUSTOM
+            range 0x000000 0xFFFFFF
+            default 0xFF00FF
+
+        config SCANNER_SCALE_CUSTOM_MID
+            hex "Mid-signal color (0xRRGGBB)"
+            depends on SCANNER_SCALE_CUSTOM
+            range 0x000000 0xFFFFFF
+            default 0x0000FF
+
+        config SCANNER_SCALE_CUSTOM_STRONG
+            hex "Strong-signal color (0xRRGGBB)"
+            depends on SCANNER_SCALE_CUSTOM
+            range 0x000000 0xFFFFFF
+            default 0x00FFFF
+
+        config SCANNER_GAMMA
+            bool "Apply gamma correction"
+            default y
+            help
+                LEDs look much brighter at low values than their numbers suggest.
+                Gamma correction (2.2) makes gradients and fades look even.
+
+    endmenu
+
+    menu "LED output"
+
+        config SCANNER_LED_GPIO
+            int "Pixel data GPIO"
+            range 0 30
+            default 2
+            help
+                Connect the DIN (data in) line of the first pixel here. GPIO2 is a
+                free, non-strapping pin on the ESP32-C6 DevKit boards.
+
+        config SCANNER_LED_COUNT
+            int "Number of pixels"
+            range 1 300
+            default 1
+            help
+                All pixels show the same color.
+
+        choice SCANNER_LED_ORDER
+            prompt "Pixel type / byte order"
+            default SCANNER_LED_ORDER_GRB
+            help
+                If the colors come out swapped (for example red shows as green),
+                try a different order.
+
+            config SCANNER_LED_ORDER_GRB
+                bool "WS2812 / WS2812B / SK6812 RGB (GRB)"
+            config SCANNER_LED_ORDER_RGB
+                bool "RGB"
+            config SCANNER_LED_ORDER_WRGB
+                bool "WS2814 RGBW (WRGB, per datasheet)"
+            config SCANNER_LED_ORDER_RGBW
+                bool "RGBW (some WS2814 strips)"
+            config SCANNER_LED_ORDER_GRBW
+                bool "SK6812 RGBW (GRBW)"
+        endchoice
+
+        config SCANNER_LED_HAS_WHITE
+            bool
+            default y if SCANNER_LED_ORDER_WRGB || SCANNER_LED_ORDER_RGBW || SCANNER_LED_ORDER_GRBW
+            default n
+
+        config SCANNER_LED_USE_WHITE
+            bool "Move the shared white part of each color to the W channel"
+            depends on SCANNER_LED_HAS_WHITE
+            default n
+            help
+                Pastel and white colors look cleaner and use less power, but the
+                color can shift because the white LED's tint differs from mixed RGB.
+
+        config SCANNER_LED_BRIGHTNESS
+            int "Maximum brightness (1-255)"
+            range 1 255
+            default 64
+            help
+                Scales all output. Lower values save a lot of battery and are easier
+                on the eyes in a wearable.
+
+        config SCANNER_LED_FADE_MS
+            int "Fade time between colors (ms)"
+            range 0 5000
+            default 400
+
+        config SCANNER_ONBOARD_LED
+            bool "Mirror the color on the board's built-in RGB LED"
+            default y
+            help
+                ESP32-C6 DevKitC-1 and DevKitM-1 boards have a WS2812 on GPIO8. This
+                lets you test without any external pixels.
+
+        config SCANNER_ONBOARD_LED_GPIO
+            int "Built-in RGB LED GPIO"
+            depends on SCANNER_ONBOARD_LED
+            range 0 30
+            default 8
+
+        choice SCANNER_ONBOARD_LED_ORDER
+            prompt "Built-in RGB LED byte order"
+            depends on SCANNER_ONBOARD_LED
+            default SCANNER_ONBOARD_LED_ORDER_GRB
+            help
+                If the startup test flashes green, red, blue (instead of red,
+                green, blue) on the built-in LED, choose RGB.
+
+            config SCANNER_ONBOARD_LED_ORDER_GRB
+                bool "GRB (Espressif DevKits)"
+            config SCANNER_ONBOARD_LED_ORDER_RGB
+                bool "RGB (Waveshare ESP32-C6-LCD-1.47)"
+        endchoice
+
+    endmenu
+
+    menu "Display"
+
+        config SCANNER_DISPLAY
+            bool "ST7789 SPI display (e.g. Waveshare ESP32-C6-LCD-1.47)"
+            default n
+            help
+                Shows the access points found, strongest first, each with an RSSI
+                bar. In target-SSID mode only that SSID's access points are listed.
+                Defaults below match the Waveshare ESP32-C6-LCD-1.47 (172x320).
+
+        if SCANNER_DISPLAY
+
+            config SCANNER_DISPLAY_RSSI_MIN
+                int "Empty bar at (dBm)"
+                range -100 -30
+                default -82
+                help
+                    Access points weaker than this are not listed (they would have
+                    an empty bar). Hidden networks are never listed. Both are still
+                    logged and still count for the LED in automatic mode.
+
+            config SCANNER_DISPLAY_RSSI_MAX
+                int "Full bar at (dBm)"
+                range -90 -10
+                default -35
+                help
+                    Signals at or above this level show a full bar.
+
+            config SCANNER_DISPLAY_BRIGHTNESS
+                int "Backlight brightness (%)"
+                range 1 100
+                default 60
+
+            config SCANNER_DISPLAY_WIDTH
+                int "Width (pixels)"
+                default 172
+
+            config SCANNER_DISPLAY_HEIGHT
+                int "Height (pixels)"
+                default 320
+
+            config SCANNER_DISPLAY_X_GAP
+                int "Column offset"
+                default 34
+                help
+                    The ST7789 has 240 columns of memory; a 172-pixel-wide panel
+                    is centered in it, starting at column 34.
+
+            config SCANNER_DISPLAY_Y_GAP
+                int "Row offset"
+                default 0
+
+            config SCANNER_DISPLAY_INVERT
+                bool "Invert colors (needed by most IPS ST7789 panels)"
+                default y
+
+            config SCANNER_DISPLAY_BGR
+                bool "Panel uses BGR order (swap red and blue)"
+                default n
+
+            config SCANNER_DISPLAY_SPI_MHZ
+                int "SPI clock (MHz)"
+                range 1 80
+                default 40
+
+            config SCANNER_DISPLAY_PIN_CS
+                int "CS GPIO"
+                default 14
+            config SCANNER_DISPLAY_PIN_DC
+                int "DC GPIO"
+                default 15
+            config SCANNER_DISPLAY_PIN_RST
+                int "Reset GPIO"
+                default 21
+            config SCANNER_DISPLAY_PIN_BL
+                int "Backlight GPIO"
+                default 22
+
+        endif
+
+    endmenu
+
+    menu "GPS module"
+
+        config SCANNER_GPS
+            bool "GPS module on a UART (NMEA)"
+            default n
+            help
+                Reads position from a serial GPS module (u-blox or any NMEA 0183
+                receiver). Detected automatically: the scanner works normally
+                without it. When present, position is added to the microSD log, a
+                globe in the status bar shows the fix (gray none, red poor, orange,
+                yellow, green good, cyan differential), and the GPS mode shows the
+                details.
+
+        if SCANNER_GPS
+
+            config SCANNER_GPS_UART_NUM
+                int "UART number"
+                range 1 1
+                default 1
+
+            config SCANNER_GPS_PIN_RX
+                int "ESP RX GPIO (connect to the module's TX)"
+                default 17
+
+            config SCANNER_GPS_PIN_TX
+                int "ESP TX GPIO (connect to the module's RX; -1 = not connected)"
+                range -1 30
+                default 16
+
+            config SCANNER_GPS_BAUD
+                int "Baud rate (0 = detect automatically)"
+                default 0
+                help
+                    Automatic detection tries 9600, 38400, 115200, 57600, 4800 and
+                    230400 until valid NMEA arrives.
+
+            config SCANNER_USB_NMEA
+                bool "NMEA from a computer over USB"
+                depends on SCANNER_SD_DOWNLOAD
+                default y
+                help
+                    NMEA sentences sent to the USB serial port (one per line) are
+                    used like a module's; tools/nmea_usb.py forwards a GPS on the
+                    computer, or sends a fixed position. A module wins over USB,
+                    and USB over a phone. Uses the same USB serial port as the log
+                    downloads (needs microSD log -> Download logs over USB).
+
+            config SCANNER_PHONE_GPS
+                bool "Phone GPS link over Bluetooth LE"
+                depends on SCANNER_DISPLAY && BT_NIMBLE_ENABLED && BT_NIMBLE_ROLE_PERIPHERAL
+                default y
+                help
+                    Advertises as WiFiScan-XXXX with the Nordic UART Service. A
+                    paired phone (6-digit passkey shown on screen) receives the
+                    scanner's position as NMEA notifications, like a Bluetooth
+                    GNSS receiver, and can also send its own position as NMEA
+                    (used when there is no module or USB source). Switched on
+                    and off from the GPS screen. Needs the NimBLE peripheral role (Component
+                    config -> Bluetooth -> NimBLE Options -> Roles).
+
+        endif
+
+    endmenu
+
+    menu "Extra modes (need the display)"
+        depends on SCANNER_DISPLAY
+
+        config SCANNER_FTM
+            bool "FTM ranging in Wi-Fi details"
+            depends on ESP_WIFI_FTM_ENABLE && ESP_WIFI_FTM_INITIATOR_SUPPORT
+            default y
+            help
+                While a network's details are open, BSSIDs that advertise FTM
+                responder (802.11mc) are ranged between scans. Measured distances
+                show in green (uncertainty under 3 m) or yellow; RSSI estimates
+                stay white. Needs Component config -> Wi-Fi -> WiFi FTM, and an
+                ESP32-C6 newer than ECO1.
+
+        config SCANNER_MODE_BLE
+            bool "Bluetooth LE scanner"
+            depends on BT_NIMBLE_ENABLED
+            default y
+            help
+                Needs Bluetooth with the NimBLE host enabled (Component config ->
+                Bluetooth). Wi-Fi scanning pauses while this mode is open.
+
+        config SCANNER_MODE_BAND
+            bool "2.4 GHz band usage (Bluetooth channels)"
+            depends on IEEE802154_ENABLED
+            default y
+            help
+                RF energy across 2400-2484 MHz with a waterfall, marking the BLE
+                advertising channels and Wi-Fi 1/6/11. Uses the 802.15.4 radio's
+                energy detector (16 points, 5 MHz apart), since the Bluetooth
+                controller doesn't report per-channel activity. Measures all RF
+                energy, not only Bluetooth. Wi-Fi is stopped while open.
+
+        config SCANNER_MODE_ZIGBEE
+            bool "Zigbee / 802.15.4 scanner"
+            depends on IEEE802154_ENABLED
+            default y
+            help
+                Energy per channel (11-26) and networks found by beacon requests.
+                Wi-Fi is stopped while this mode is open.
+
+        config SCANNER_MODE_FILES
+            bool "File browser with Wi-Fi sharing"
+            depends on SCANNER_SD_LOG
+            default y
+            help
+                Lists the microSD log files. Double press starts a Wi-Fi access
+                point with a download page.
+
+    endmenu
+
+    menu "microSD log"
+
+        config SCANNER_SD_LOG
+            bool "Log scans to a microSD card (CSV)"
+            default n
+            help
+                If a card is present, each boot writes a new SCANnnnn.CSV with one
+                row per access point per scan. Without a card the scanner runs
+                normally and checks for one every minute. The card must be FAT32
+                (or FAT16) formatted.
+
+        if SCANNER_SD_LOG
+
+            config SCANNER_SD_PIN_CS
+                int "Card CS GPIO"
+                default 4
+
+            config SCANNER_SD_SPI_KHZ
+                int "SPI clock (kHz)"
+                range 400 40000
+                default 20000
+
+            config SCANNER_SD_DOWNLOAD
+                bool "Download logs over USB (tools/sdlog.py)"
+                depends on ESP_CONSOLE_USB_SERIAL_JTAG
+                default y
+                help
+                    Answers list / download / delete commands on the USB serial
+                    port. Needs the console on USB-Serial-JTAG (Component config ->
+                    ESP System Settings -> Channel for console output).
+
+        endif
+
+    endmenu
+
+    menu "SPI bus (display and microSD)"
+        visible if SCANNER_DISPLAY || SCANNER_SD_LOG
+
+        config SCANNER_SPI_PIN_MOSI
+            int "MOSI GPIO"
+            default 6
+        config SCANNER_SPI_PIN_SCLK
+            int "SCLK GPIO"
+            default 7
+        config SCANNER_SPI_PIN_MISO
+            int "MISO GPIO (microSD)"
+            default 5
+
+    endmenu
+
+    menu "Demo"
+        depends on SCANNER_DISPLAY
+
+        config SCANNER_DEMO
+            bool "Demo mode (cycles through the modes, for video)"
+            default n
+            help
+                Presses the button on a script: the Wi-Fi list and the details
+                of networks with FTM or location, then GPS, BLE devices, band
+                usage, Zigbee and the file browser, then repeats. A real button
+                press stops the script; reset to start it again. SSIDs and BLE
+                names can have a word redacted (below).
+
+        config SCANNER_DEMO_REDACT
+            string "Redact this word in SSIDs and BLE names (any case)"
+            depends on SCANNER_DEMO
+            default ""
+            help
+                For recording: e.g. a family name in home network names.
+                Empty = no redaction.
+
+        config SCANNER_DEMO_REDACT_WITH
+            string "Replace it with"
+            depends on SCANNER_DEMO
+            default "Test"
+
+        config SCANNER_DEMO_GPS
+            bool "Simulated GPS receiver"
+            depends on SCANNER_DEMO && SCANNER_GPS
+            default y
+            help
+                Generates NMEA for a multi-GNSS receiver walking a loop next to
+                Wrigley Field (used only when no module or phone is sending).
+
+        config SCANNER_DEMO_PACE
+            int "Pace (percent of the default time on each screen)"
+            depends on SCANNER_DEMO
+            range 25 400
+            default 100
+
+    endmenu
+
+endmenu

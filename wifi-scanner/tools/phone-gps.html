@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone GPS Link</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #ddd; --accent: #0a7d8c; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111; --fg: #eee; --muted: #999; --line: #333; --accent: #4fd1e0; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 520px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  button { width: 100%; padding: 14px; margin: 8px 0; font: inherit; font-weight: 600; border-radius: 10px;
+           border: 1px solid var(--accent); background: var(--accent); color: var(--bg); }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .45; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 16px 0;
+       padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  #status.bad { color: var(--bad); }
+  pre { font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1>Phone GPS for the Wi-Fi scanner</h1>
+<p>Sends this phone's location to the scanner over Bluetooth as NMEA. On the scanner, open GPS and press
+   the button to turn phone GPS on. The first time, the phone asks for the 6-digit code shown on the
+   scanner. Keep this page open and the screen on while it runs.</p>
+
+<button id="connect">Connect to scanner</button>
+<button id="disconnect" class="secondary" disabled>Disconnect</button>
+
+<dl>
+  <dt>Status</dt><dd id="status">Not connected</dd>
+  <dt>Scanner</dt><dd id="device">–</dd>
+  <dt>Position</dt><dd id="pos">–</dd>
+  <dt>Accuracy</dt><dd id="acc">–</dd>
+  <dt>Sent</dt><dd id="sent">0 fixes</dd>
+</dl>
+<pre id="last"></pre>
+
+<script>
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const $ = id => document.getElementById(id);
+
+let device = null, rx = null, watchId = null, sent = 0, busy = false, wakeLock = null;
+
+function setStatus(text, bad) {
+  $('status').textContent = text;
+  $('status').className = bad ? 'bad' : '';
+}
+
+function checksum(body) {
+  let c = 0;
+  for (const ch of body) c ^= ch.charCodeAt(0);
+  return c.toString(16).toUpperCase().padStart(2, '0');
+}
+const sentence = body => `$${body}*${checksum(body)}\r\n`;
+
+function coord(deg, isLat) {
+  const a = Math.abs(deg), d = Math.floor(a), m = (a - d) * 60;
+  const hemi = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+  return `${String(d).padStart(isLat ? 2 : 3, '0')}${m.toFixed(5).padStart(8, '0')},${hemi}`;
+}
+
+// GGA + RMC + GSA from a Geolocation position. HDOP is derived from the reported accuracy
+// (the scanner estimates accuracy as HDOP x 2.5 m), so the scanner shows a matching figure.
+function nmea(pos) {
+  const c = pos.coords, t = new Date(pos.timestamp);
+  const p2 = n => String(n).padStart(2, '0');
+  const hms = `${p2(t.getUTCHours())}${p2(t.getUTCMinutes())}${p2(t.getUTCSeconds())}.${String(Math.floor(t.getUTCMilliseconds() / 10)).padStart(2, '0')}`;
+  const dmy = `${p2(t.getUTCDate())}${p2(t.getUTCMonth() + 1)}${p2(t.getUTCFullYear() % 100)}`;
+  const lat = coord(c.latitude, true), lon = coord(c.longitude, false);
+  const hdop = Math.max(0.5, (c.accuracy || 25) / 2.5).toFixed(1);
+  const alt = c.altitude != null ? c.altitude.toFixed(1) : '';
+  const knots = c.speed != null && !isNaN(c.speed) ? (c.speed * 1.943844).toFixed(2) : '';
+  const course = c.heading != null && !isNaN(c.heading) ? c.heading.toFixed(1) : '';
+  const fix = c.altitude != null ? 3 : 2;
+  return sentence(`GPGGA,${hms},${lat},${lon},1,,${hdop},${alt},M,,M,,`) +
+         sentence(`GPRMC,${hms},A,${lat},${lon},${knots},${course},${dmy},,,A`) +
+         sentence(`GPGSA,A,${fix},,,,,,,,,,,,,,${hdop},`);
+}
+
+async function send(text) {
+  // 20-byte writes fit the smallest BLE packet; the scanner reassembles lines.
+  const bytes = new TextEncoder().encode(text);
+  for (let i = 0; i < bytes.length; i += 20) {
+    await rx.writeValueWithResponse(bytes.slice(i, i + 20));
+  }
+}
+
+async function onPosition(pos) {
+  const c = pos.coords;
+  $('pos').textContent = `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`;
+  $('acc').textContent = `±${Math.round(c.accuracy)} m`;
+  if (!rx || busy) return;            // skip a fix rather than queue up behind a slow link
+  busy = true;
+  const text = nmea(pos);
+  try {
+    await send(text);
+    sent++;
+    $('sent').textContent = `${sent} fixes`;
+    $('last').textContent = text.trim();
+    setStatus('Sending location');
+  } catch (e) {
+    // The first write fails until the phone has paired (the scanner requires it); later fixes retry.
+    setStatus(`Waiting for pairing… (${e.message})`, true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus('This browser has no Web Bluetooth. Use Chrome on Android, or Bluefy on iPhone.', true);
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'WiFiScan' }], optionalServices: [NUS] });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    $('device').textContent = device.name || device.id;
+    setStatus('Connecting…');
+    const server = await device.gatt.connect();
+    rx = await (await server.getPrimaryService(NUS)).getCharacteristic(RX);
+    setStatus('Connected; waiting for location');
+    $('connect').disabled = true;
+    $('disconnect').disabled = false;
+    watchId = navigator.geolocation.watchPosition(onPosition,
+      e => setStatus(`Location error: ${e.message}`, true),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) { /* optional */ }
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+function onDisconnected() {
+  rx = null;
+  if (watchId != null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  wakeLock?.release?.();
+  wakeLock = null;
+  setStatus('Disconnected', true);
+  $('connect').disabled = false;
+  $('disconnect').disabled = true;
+}
+
+$('connect').addEventListener('click', connect);
+$('disconnect').addEventListener('click', () => device?.gatt?.disconnect());
+</script>
+</body>
+</html>

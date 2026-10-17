@@ -1,0 +1,2 @@
+# Demo overlay: scripted mode tour for video (use with sdkconfig.defaults.waveshare-lcd)
+CONFIG_SCANNER_DEMO=y

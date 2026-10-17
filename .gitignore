@@ -1,0 +1,26 @@
+# ESP-IDF build output (build, build-lcd, build-demo, build-xiao-int, ...)
+build/
+build-*/
+managed_components/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
+
+# Local demo config (holds the word the demo redacts); generated from the defaults
+wifi-scanner/sdkconfig.waveshare-demo
+
+# Logs from local builds and flashing
+*.log
+
+# Stray local copy of the ESP-IDF component tree (not used by the build)
+wifi-scanner/components/
+
+# Editor / OS / Python
+.vscode/
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db
+Desktop.ini
