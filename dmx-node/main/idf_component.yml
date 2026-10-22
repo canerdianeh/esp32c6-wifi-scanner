@@ -1,0 +1,5 @@
+## IDF Component Manager Manifest File
+dependencies:
+  idf: ">=6.0"
+  # ESP-IDF 6 moved cJSON out of the IDF tree into the component registry.
+  espressif/cjson: "^1.7.19"

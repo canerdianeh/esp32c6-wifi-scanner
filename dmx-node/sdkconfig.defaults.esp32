@@ -1,0 +1,4 @@
+# The classic ESP32 has no USB serial port; the log goes to UART0, which
+# leaves UART1 and UART2 for DMX.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n

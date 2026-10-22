@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>DMX Node</title>
+<style>
+body{font:15px system-ui,sans-serif;margin:0 auto;max-width:34em;padding:0 12px 24px;background:#fff;color:#111}
+@media(prefers-color-scheme:dark){body{background:#111;color:#eee}input,select{background:#222;color:#eee}}
+h1{font-size:1.3em}fieldset{border:1px solid #8886;border-radius:6px;margin:10px 0}
+label{display:flex;justify-content:space-between;align-items:center;margin:5px 0;gap:8px}
+input,select{font:inherit;width:11em;padding:3px;border:1px solid #8888;border-radius:4px}
+input[type=checkbox]{width:auto}button{font:inherit;padding:8px 18px;margin-top:6px}
+#st{font-size:.9em;opacity:.8;white-space:pre-wrap}.n{opacity:.7;font-size:.85em}
+</style></head><body>
+<h1 id=title>DMX Node</h1>
+<div id=st>…</div>
+<form id=f>
+<fieldset><legend>Node</legend>
+<label>Name <input name=name maxlength=31></label>
+<label>Wi-Fi network <input name=wifi.ssid maxlength=32></label>
+<label>Wi-Fi password <input name=wifi.pass type=password maxlength=64 placeholder="unchanged"></label>
+</fieldset>
+<fieldset><legend>Input</legend>
+<label>Source <select name=source><option value=sacn>sACN (E1.31)<option value=artnet>Art-Net<option value=dmx>DMX in on port A</select></label>
+<label>On data loss <select name=loss><option value=hold>Hold last look<option value=blackout>Blackout</select></label>
+<p class=n>Art-Net universes are 15-bit port addresses (0 = 0:0:0); sACN universes start at 1.</p>
+</fieldset>
+<fieldset><legend>DMX ports</legend>
+<label>Port A <select name=a.mode><option value=off>Off<option value=out>Output<option value=in>Input</select></label>
+<label>Port A universe <input name=a.univ type=number min=0 max=63999></label>
+<label>Port B <select name=b.mode><option value=off>Off<option value=out>Output</select></label>
+<label>Port B universe <input name=b.univ type=number min=0 max=63999></label>
+<label>Refresh (frames/s) <input name=fps type=number min=1 max=44></label>
+</fieldset>
+<fieldset><legend>Pixels (SPI)</legend>
+<label>Type <select name=pix.type><option value=off>Off<option value=ws2812>WS2812 / SK6812<option value=apa102>APA102 / SK9822</select></label>
+<label>Color order <select name=pix.order><option>rgb<option>grb<option>bgr<option>rgbw<option>grbw</select></label>
+<label>Pixels <input name=pix.count type=number min=1 max=680></label>
+<label>Universe <input name=pix.univ type=number min=0 max=63999></label>
+<label>Start address <input name=pix.addr type=number min=1 max=512></label>
+</fieldset>
+<fieldset><legend>PWM</legend>
+<label>Mode <select name=pwm.mode><option value=off>Off<option value=led>LED dimmer<option value=servo>Servo</select></label>
+<label>Channels <input name=pwm.count type=number min=1 max=8></label>
+<label>16-bit (coarse + fine) <input name=pwm.fine type=checkbox></label>
+<label>Universe <input name=pwm.univ type=number min=0 max=63999></label>
+<label>Start address <input name=pwm.addr type=number min=1 max=512></label>
+<label>Servo pulse at 0 (µs) <input name=pwm.min_us type=number min=500 max=2500></label>
+<label>Servo pulse at full (µs) <input name=pwm.max_us type=number min=500 max=2500></label>
+</fieldset>
+<button>Save and restart</button>
+</form>
+<script>
+const f=document.getElementById('f'),st=document.getElementById('st');
+const get=(o,k)=>k.split('.').reduce((a,b)=>a&&a[b],o);
+function set(o,k,v){const p=k.split('.'),l=p.pop();p.forEach(x=>o=o[x]=o[x]||{});o[l]=v}
+fetch('/api/config').then(r=>r.json()).then(c=>{
+  document.getElementById('title').textContent=c.name;
+  for(const e of f.elements){if(!e.name)continue;const v=get(c,e.name);
+    if(e.type=='checkbox')e.checked=!!v;else if(v!==undefined)e.value=v}
+  if(c.wifi&&!c.wifi.pass_set)f['wifi.pass'].placeholder='none';
+});
+f.onsubmit=ev=>{ev.preventDefault();const c={};
+  for(const e of f.elements){if(!e.name)continue;
+    if(e.name=='wifi.pass'&&!e.value)continue;
+    set(c,e.name,e.type=='checkbox'?e.checked:e.type=='number'?+e.value:e.value)}
+  fetch('/api/config',{method:'POST',body:JSON.stringify(c)})
+    .then(r=>{st.textContent=r.ok?'Saved. Restarting…':'Error '+r.status;if(r.ok)setTimeout(()=>location.reload(),5000)});
+};
+function poll(){fetch('/api/status').then(r=>r.json()).then(s=>{
+  st.textContent=`${s.ip} (${s.station?'network':'setup AP'}) · up ${s.uptime_s}s · v${s.version}\n`+
+    s.universes.map(u=>`U${u.univ}: ${u.src} ${u.frames} frames`+(u.age_ms>=0?`, ${u.age_ms} ms ago`:'')).join('\n');
+}).catch(()=>{}).finally(()=>setTimeout(poll,2000))}
+poll();
+</script>
+</body></html>
